@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Class {
+  id         String    @id @default(cuid())
+  name       String
+  subjects   Subject[]
+  created_at DateTime  @default(now())
+}
+
+model Subject {
+  id         String    @id @default(cuid())
+  name       String
+  class_id   String
+  class      Class     @relation(fields: [class_id], references: [id])
+  chapters   Chapter[]
+  created_at DateTime  @default(now())
+}
+
+model Chapter {
+  id            String            @id @default(cuid())
+  name          String
+  order         Int
+  pdf_url       String
+  subject_id    String
+  subject       Subject           @relation(fields: [subject_id], references: [id])
+  subtopics     ChapterSubtopic[]
+  chunks        ChapterChunk[]
+  chat_sessions ChatSession[]
+  notes         Note[]
+  tests         Test[]
+  progress      UserProgress[]
+  created_at    DateTime          @default(now())
+}
+
+model ChapterSubtopic {
+  id         String  @id @default(cuid())
+  chapter_id String
+  chapter    Chapter @relation(fields: [chapter_id], references: [id])
+  title      String
+  order      Int
+}
+
+model ChapterChunk {
+  id          String                      @id @default(cuid())
+  chapter_id  String
+  chapter     Chapter                     @relation(fields: [chapter_id], references: [id])
+  content     String
+  embedding   Unsupported("vector(1536)")
+  chunk_index Int
+  created_at  DateTime                    @default(now())
+}
+
+model ChatSession {
+  id         String        @id @default(cuid())
+  user_id    String
+  chapter_id String
+  chapter    Chapter       @relation(fields: [chapter_id], references: [id])
+  messages   ChatMessage[]
+  created_at DateTime      @default(now())
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+model ChatMessage {
+  id         String      @id @default(cuid())
+  session_id String
+  session    ChatSession @relation(fields: [session_id], references: [id])
+  role       MessageRole
+  content    String
+  citations  Json?
+  created_at DateTime    @default(now())
+}
+
+enum NoteLength {
+  short
+  medium
+  long
+}
+
+enum LanguageLevel {
+  easy
+  medium
+  advanced
+}
+
+model Note {
+  id                 String        @id @default(cuid())
+  user_id            String
+  chapter_id         String
+  chapter            Chapter       @relation(fields: [chapter_id], references: [id])
+  selected_subtopics Json
+  length             NoteLength
+  language_level     LanguageLevel
+  content            String
+  created_at         DateTime      @default(now())
+}
+
+enum Difficulty {
+  easy
+  medium
+  hard
+}
+
+model Test {
+  id                 String         @id @default(cuid())
+  user_id            String
+  chapter_id         String
+  chapter            Chapter        @relation(fields: [chapter_id], references: [id])
+  selected_subtopics Json
+  num_questions      Int
+  difficulty         Difficulty
+  questions          TestQuestion[]
+  attempts           TestAttempt[]
+  created_at         DateTime       @default(now())
+}
+
+model TestQuestion {
+  id             String @id @default(cuid())
+  test_id        String
+  test           Test   @relation(fields: [test_id], references: [id])
+  question_text  String
+  options        Json
+  correct_answer String
+  explanation    String
+  order          Int
+}
+
+model TestAttempt {
+  id           String   @id @default(cuid())
+  test_id      String
+  test         Test     @relation(fields: [test_id], references: [id])
+  user_id      String
+  answers      Json
+  score        Int
+  submitted_at DateTime @default(now())
+}
+
+model UserProgress {
+  id             String    @id @default(cuid())
+  user_id        String
+  chapter_id     String
+  chapter        Chapter   @relation(fields: [chapter_id], references: [id])
+  is_completed   Boolean   @default(false)
+  started_at     DateTime  @default(now())
+  last_opened_at DateTime  @updatedAt
+  completed_at   DateTime?
+
+  @@unique([user_id, chapter_id])
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
