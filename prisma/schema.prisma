@@ -51,7 +51,7 @@ model ChapterChunk {
   chapter_id  String
   chapter     Chapter                     @relation(fields: [chapter_id], references: [id])
   content     String
-  embedding   Unsupported("vector(1536)")
+  embedding   Unsupported("vector(768)")
   chunk_index Int
   created_at  DateTime                    @default(now())
 }
