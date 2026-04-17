@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
-import { PDFParse } from "pdf-parse";
+import pdfParse from "pdf-parse";
 import prisma from "@/lib/prisma";
 import { generateEmbedding } from "@/lib/gemini";
 
@@ -54,16 +54,10 @@ export async function POST(
 
     const buffer = Buffer.from(await pdfResponse.arrayBuffer());
 
-    const parser = new PDFParse({ data: buffer });
-    let fullText: string;
-    try {
-      const parsed = await parser.getText();
-      fullText = parsed.text;
-    } finally {
-      await parser.destroy();
-    }
+    const parsed = await pdfParse(buffer);
+    const text = parsed.text;
 
-    const textChunks = splitIntoChunks(fullText);
+    const textChunks = splitIntoChunks(text);
 
     for (let index = 0; index < textChunks.length; index++) {
       const content = textChunks[index]!;
@@ -85,7 +79,8 @@ export async function POST(
       },
       { status: 201 },
     );
-  } catch {
+  } catch (error) {
+    console.error(error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },

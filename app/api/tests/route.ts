@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { generateText } from "@/lib/gemini";
 
@@ -46,6 +47,12 @@ function normalizeQuestion(item: ParsedQuestion): ParsedQuestion {
 }
 
 export async function POST(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const userId = session.user.id;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -152,7 +159,7 @@ export async function POST(request: NextRequest) {
     const data = await prisma.$transaction(async (tx) => {
       const test = await tx.test.create({
         data: {
-          user_id: "test-user",
+          user_id: userId,
           chapter_id: chapterId,
           selected_subtopics: selectedSubtopics,
           num_questions: numQuestions,
