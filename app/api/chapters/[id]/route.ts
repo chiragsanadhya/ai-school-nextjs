@@ -2,6 +2,25 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  try {
+    const chapter = await prisma.chapter.findUnique({ where: { id } });
+    if (!chapter) {
+      return NextResponse.json({ error: "Chapter not found" }, { status: 404 });
+    }
+    return NextResponse.json({ data: chapter });
+  } catch {
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
