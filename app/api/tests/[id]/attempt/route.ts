@@ -81,7 +81,7 @@ export async function POST(
       },
     });
 
-    const results = questions.map((q) => {
+    const results = questions.map((q: { id: string; question_text: string; correct_answer: string; explanation: string }) => {
       const selected = answers[q.id];
       const normalized =
         typeof selected === "string" ? selected.trim().toUpperCase() : "";
