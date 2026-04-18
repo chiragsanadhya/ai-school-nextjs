@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { generateEmbedding, generateText } from "@/lib/gemini";
@@ -92,16 +91,14 @@ export async function POST(request: NextRequest) {
     const embedding = await generateEmbedding(message);
     const embeddingStr = `[${embedding.join(",")}]`;
 
-    const chunks = await prisma.$queryRaw<ChunkRow[]>(
-      Prisma.sql`
-        SELECT id, content, chunk_index,
-          1 - (embedding <=> ${embeddingStr}::vector) AS similarity
-        FROM "ChapterChunk"
-        WHERE chapter_id = ${chapterId}
-        ORDER BY embedding <=> ${embeddingStr}::vector
-        LIMIT 5
-      `,
-    );
+    const chunks = await prisma.$queryRaw<ChunkRow[]>`
+      SELECT id, content, chunk_index,
+        1 - (embedding <=> ${embeddingStr}::vector) AS similarity
+      FROM "ChapterChunk"
+      WHERE chapter_id = ${chapterId}
+      ORDER BY embedding <=> ${embeddingStr}::vector
+      LIMIT 5
+    `;
 
     const context = chunks
       .map((c, i) => "Chunk " + (i + 1) + ": " + c.content)
