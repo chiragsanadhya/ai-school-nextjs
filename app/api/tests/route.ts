@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
 
     const questionsInput = parsed.map(normalizeQuestion);
 
-    const data = await prisma.$transaction(async (tx) => {
+    const data = await prisma.$transaction(async (tx: typeof prisma) => {
       const test = await tx.test.create({
         data: {
           user_id: userId,
