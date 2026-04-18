@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
 import pdfParse from "pdf-parse";
 import prisma from "@/lib/prisma";
 import { generateEmbedding } from "@/lib/gemini";
@@ -64,12 +63,10 @@ export async function POST(
       const embedding = await generateEmbedding(content);
       const embeddingStr = `[${embedding.join(",")}]`;
 
-      await prisma.$executeRaw(
-        Prisma.sql`
-          INSERT INTO "ChapterChunk" (id, chapter_id, content, embedding, chunk_index, created_at)
-          VALUES (gen_random_uuid()::text, ${id}, ${content}, ${embeddingStr}::vector, ${index}, NOW())
-        `,
-      );
+      await prisma.$executeRaw`
+        INSERT INTO "ChapterChunk" (id, chapter_id, content, embedding, chunk_index, created_at)
+        VALUES (gen_random_uuid()::text, ${id}, ${content}, ${embeddingStr}::vector, ${index}, NOW())
+      `;
     }
 
     return NextResponse.json(
