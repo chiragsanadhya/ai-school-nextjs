@@ -135,7 +135,8 @@ Provide a clear and helpful answer.`;
       { data: { sessionId, answer, citations } },
       { status: 201 },
     );
-  } catch {
+  } catch (error) {
+    console.error(error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },
