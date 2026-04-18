@@ -3,13 +3,15 @@
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import "katex/dist/katex.min.css";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 import { use, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
+import remarkMath from "remark-math";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -92,11 +94,11 @@ export default function ChapterPage({
     }
   }, [messages]);
 
-  async function sendMessage() {
-    const text = chatInput.trim();
-    if (!text || chatLoading) return;
+  async function sendMessageWithText(text: string) {
+    const t = text.trim();
+    if (!t || chatLoading) return;
 
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    setMessages((prev) => [...prev, { role: "user", content: t }]);
     setChatInput("");
     setChatLoading(true);
 
@@ -108,7 +110,7 @@ export default function ChapterPage({
         body: JSON.stringify({
           chapterId,
           sessionId,
-          message: text,
+          message: t,
         }),
       });
       const json = await res.json();
@@ -123,6 +125,10 @@ export default function ChapterPage({
     } finally {
       setChatLoading(false);
     }
+  }
+
+  async function sendMessage() {
+    await sendMessageWithText(chatInput);
   }
 
   useEffect(() => {
@@ -317,6 +323,18 @@ export default function ChapterPage({
       if (ch?.name) {
         document.title = ch.name;
       }
+      if (!cancelled && ch) {
+        try {
+          await fetch("/api/progress", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chapterId }),
+          });
+        } catch {
+          /* ignore progress errors */
+        }
+      }
       if (ch?.subject_id) {
         const listRes = await fetch(
           `/api/chapters?subjectId=${encodeURIComponent(ch.subject_id)}`,
@@ -350,26 +368,190 @@ export default function ChapterPage({
   }
 
   const isTest = mode === "test";
+  const fullScreenTest =
+    isTest && (testPhase === "taking" || testPhase === "results");
+
+  const tabTriggerClass =
+    "h-auto flex-1 rounded-none border-0 border-b-2 border-transparent bg-transparent px-2 py-3 text-sm shadow-none after:hidden hover:text-[#555] focus-visible:ring-0 data-[state=active]:border-emerald-500 data-[state=active]:font-medium data-[state=active]:text-[#111] data-[state=inactive]:text-[#888]";
+
+  if (fullScreenTest) {
+    return (
+      <div className="flex min-h-screen flex-col bg-[#f0fdf8]">
+        <header className="flex items-center justify-between border-b border-[#eaeaea] bg-white px-8 py-4">
+          <span className="text-base font-semibold text-[#111]">
+            {chapter?.name ?? "Chapter"}
+          </span>
+          <button
+            type="button"
+            onClick={exitTest}
+            className="rounded-lg border border-[#ddd] px-4 py-2 text-sm hover:bg-[#f5f5f5]"
+          >
+            Exit Test
+          </button>
+        </header>
+
+        {testPhase === "taking" && currentTest?.questions?.length ? (
+          <div className="flex flex-1 flex-col overflow-y-auto px-4 pb-8">
+            <p className="mb-4 mt-6 text-center text-xs uppercase tracking-widest text-[#888]">
+              Question {currentQuestionIndex + 1} of{" "}
+              {currentTest.questions.length}
+            </p>
+            {(() => {
+              const q = currentTest.questions[currentQuestionIndex] as {
+                id: string;
+                question_text: string;
+                options: string[];
+              };
+              const letters = ["A", "B", "C", "D"] as const;
+              return (
+                <>
+                  <div className="mx-auto mb-6 max-w-2xl rounded-2xl border border-[#eaeaea] bg-white p-8 shadow-sm">
+                    <p className="mb-6 text-base font-medium leading-relaxed text-[#111]">
+                      {q.question_text}
+                    </p>
+                    <div className="flex flex-col">
+                      {letters.map((letter, i) => (
+                        <button
+                          key={letter}
+                          type="button"
+                          onClick={() =>
+                            setUserAnswers((prev) => ({
+                              ...prev,
+                              [q.id]: letter,
+                            }))
+                          }
+                          className={cn(
+                            "mb-3 w-full rounded-xl border border-[#eaeaea] px-5 py-3.5 text-left text-sm text-[#333] transition-all hover:border-emerald-200 hover:bg-emerald-50",
+                            userAnswers[q.id] === letter &&
+                              "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-600",
+                          )}
+                        >
+                          {q.options[i] ?? `${letter}.`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mx-auto mt-6 flex max-w-2xl justify-between">
+                    <button
+                      type="button"
+                      disabled={currentQuestionIndex === 0}
+                      onClick={() =>
+                        setCurrentQuestionIndex((i) => Math.max(0, i - 1))
+                      }
+                      className="rounded-xl border border-[#ddd] px-4 py-2.5 text-sm hover:bg-[#f5f5f5] disabled:opacity-40"
+                    >
+                      Previous
+                    </button>
+                    {currentQuestionIndex >= currentTest.questions.length - 1 ? (
+                      <button
+                        type="button"
+                        disabled={testLoading}
+                        onClick={() => void submitTest()}
+                        className="rounded-xl bg-[#111] px-6 py-2.5 text-sm font-medium text-white"
+                      >
+                        Submit Test
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCurrentQuestionIndex((i) =>
+                            Math.min(currentTest.questions.length - 1, i + 1),
+                          )
+                        }
+                        className="rounded-xl bg-[#111] px-6 py-2.5 text-sm font-medium text-white"
+                      >
+                        Next
+                      </button>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
+
+        {testPhase === "results" && attemptResult ? (
+          <div className="flex flex-1 flex-col overflow-y-auto px-4 pb-8">
+            <div className="mx-auto mb-6 mt-8 max-w-2xl rounded-2xl border border-[#eaeaea] bg-white p-8 text-center shadow-sm">
+              <p className="text-6xl font-bold text-[#111]">
+                {attemptResult.score}%
+              </p>
+              <p className="mt-2 text-sm text-[#888]">
+                {attemptResult.correct} / {attemptResult.total} correct
+              </p>
+            </div>
+
+            <ul className="mx-auto flex w-full max-w-2xl flex-col">
+              {(attemptResult.results as any[]).map((r) => (
+                <li
+                  key={r.questionId}
+                  className={cn(
+                    "mb-3 rounded-xl border p-5",
+                    r.isCorrect
+                      ? "border-green-100 bg-green-50/30"
+                      : "border-red-100 bg-red-50/30",
+                  )}
+                >
+                  <p className="mb-2 text-sm font-medium text-[#111]">
+                    {r.question_text}
+                  </p>
+                  <p className="text-xs text-[#666]">
+                    Your answer: {r.selectedAnswer || "—"} · Correct:{" "}
+                    {r.correctAnswer}
+                  </p>
+                  <p className="mt-2 text-xs italic text-[#888]">
+                    {r.explanation}
+                  </p>
+                </li>
+              ))}
+            </ul>
+
+            <button
+              type="button"
+              onClick={takeAnotherTest}
+              className="mx-auto mt-4 block w-full max-w-2xl rounded-xl bg-[#111] py-3 text-center text-sm font-medium text-white"
+            >
+              Take Another Test
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-screen min-h-0 overflow-hidden bg-background">
+    <div className="flex h-screen min-h-0 overflow-hidden">
       {!isTest ? (
-        <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col border-r border-border">
-          <div className="shrink-0 border-b border-border p-4">
-            <h2 className="font-heading text-sm font-semibold">Chapters</h2>
+        <aside className="flex h-full min-h-0 w-56 shrink-0 flex-col border-r border-[#eaeaea] bg-[#fafafa]">
+          <div className="shrink-0 border-b border-[#eaeaea] px-4 py-3">
+            <span className="mr-1 text-xs text-emerald-500">●</span>
+            <span className="text-sm font-semibold text-[#111]">AI Gurukul</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="flex items-center gap-1 text-xs text-[#888] hover:text-emerald-600 transition-colors px-4 py-2"
+          >
+            ← Back
+          </button>
+          <div className="shrink-0 border-b border-[#eaeaea] px-4 py-4">
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-[#888]">
+              Chapters
+            </h2>
           </div>
           <ScrollArea className="min-h-0 flex-1">
-            <div className="flex flex-col gap-1 p-2">
+            <div className="flex flex-col py-1">
               {chapters.map((c) => (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => router.push(`/chapter/${c.id}`)}
                   className={cn(
-                    "w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
+                    "mx-2 my-1 cursor-pointer rounded-lg px-3 py-2.5 text-left text-sm transition-all",
                     c.id === chapterId
-                      ? "border-l-2 border-primary bg-muted"
-                      : "hover:bg-muted/50",
+                      ? "border border-emerald-100 bg-emerald-50 font-medium text-emerald-700"
+                      : "text-[#444] hover:bg-[#f0f0f0]",
                   )}
                 >
                   {c.name}
@@ -381,15 +563,23 @@ export default function ChapterPage({
       ) : null}
 
       {!isTest ? (
-        <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-border">
+        <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
           <ScrollArea className="h-full min-h-0">
-            <div className="p-6">
-              {dataLoading ? (
+            {dataLoading ? (
+              <div className="p-6">
                 <p className="text-muted-foreground">Loading…</p>
-              ) : (
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 border-b border-[#eaeaea] bg-white px-6 py-3">
+                  <span className="text-xs text-[#888]">📄</span>
+                  <span className="text-xs font-medium text-[#555]">
+                    {chapter?.name}
+                  </span>
+                </div>
                 <div
                   ref={containerRef}
-                  className="h-full overflow-y-auto p-4"
+                  className="h-full overflow-y-auto p-6"
                 >
                   {chapter?.pdf_url ? (
                     <Document
@@ -409,49 +599,56 @@ export default function ChapterPage({
                     <p className="text-muted-foreground">No PDF available</p>
                   )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </ScrollArea>
         </main>
       ) : null}
 
       <aside
         className={cn(
-          "flex h-full min-h-0 shrink-0 flex-col overflow-hidden bg-card",
-          isTest ? "w-full" : "w-96 border-l border-border",
+          "flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[#eaeaea] bg-white",
+          isTest ? "w-full" : "w-96",
         )}
       >
         {isTest ? (
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border p-3">
-            <span className="min-w-0 truncate font-heading text-sm font-semibold">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#eaeaea] px-4 py-3">
+            <span className="min-w-0 truncate text-base font-semibold text-[#111]">
               {chapter?.name ?? "Chapter"}
             </span>
-            <Button
+            <button
               type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0"
               onClick={exitTest}
+              className="shrink-0 rounded-lg border border-[#ddd] px-4 py-2 text-sm hover:bg-[#f5f5f5]"
             >
               Exit Test
-            </Button>
+            </button>
           </div>
         ) : null}
+
+        <div className="shrink-0 border-b border-[#eaeaea] bg-[#fafafa] px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#888]">
+            AI Assistant
+          </p>
+        </div>
 
         <Tabs
           value={mode}
           onValueChange={(v) => setMode(v as "chat" | "notes" | "test")}
           className="flex min-h-0 flex-1 flex-col gap-0"
         >
-          <div className="shrink-0 border-b border-border p-3">
-            <TabsList variant="line" className="w-full">
-              <TabsTrigger value="chat" className="flex-1">
+          <div className="shrink-0 border-b border-[#eaeaea] px-4">
+            <TabsList
+              variant="line"
+              className="flex h-auto w-full justify-start gap-6 rounded-none border-0 bg-transparent p-0"
+            >
+              <TabsTrigger value="chat" className={tabTriggerClass}>
                 Chat
               </TabsTrigger>
-              <TabsTrigger value="notes" className="flex-1">
+              <TabsTrigger value="notes" className={tabTriggerClass}>
                 Notes
               </TabsTrigger>
-              <TabsTrigger value="test" className="flex-1">
+              <TabsTrigger value="test" className={tabTriggerClass}>
                 Test
               </TabsTrigger>
             </TabsList>
@@ -463,48 +660,78 @@ export default function ChapterPage({
           >
             <div className="flex min-h-0 flex-1 flex-col">
               <ScrollArea className="min-h-0 flex-1">
-                <div
-                  ref={messagesContainerRef}
-                  className="flex flex-col gap-3 p-4"
-                >
-                  {messages.map((m, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        "flex",
-                        m.role === "user" ? "justify-end" : "justify-start",
-                      )}
-                    >
-                      <div className="max-w-[85%]">
-                        <div
-                          className={cn(
-                            "rounded-lg px-3 py-2 text-sm",
-                            m.role === "user"
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted",
-                          )}
+                {messages.length === 0 ? (
+                  <div className="flex h-full min-h-[280px] flex-col items-center justify-center px-6 text-center">
+                    <div className="mb-4 text-4xl">🤖</div>
+                    <p className="mb-1 text-sm font-medium text-[#333]">
+                      Ask anything about this chapter
+                    </p>
+                    <p className="text-xs text-[#999]">
+                      I&apos;ll answer based on the actual PDF content
+                    </p>
+                    <div className="mt-6 flex w-full flex-col gap-2">
+                      {[
+                        "What is Newton's First Law?",
+                        "Explain inertia with examples",
+                        "Summarize this chapter",
+                      ].map((q) => (
+                        <button
+                          key={q}
+                          type="button"
+                          onClick={() => {
+                            void sendMessageWithText(q);
+                          }}
+                          className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-left text-xs text-emerald-700 transition-colors hover:bg-emerald-100"
                         >
-                          {m.content}
-                        </div>
-                        {m.role === "assistant" &&
-                        m.citations &&
-                        m.citations.length > 0 ? (
-                          <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                            {m.citations.map((c: any, ci: number) => (
-                              <div key={ci}>
-                                {typeof c?.snippet === "string"
-                                  ? c.snippet
-                                  : String(c)}
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
+                          {q}
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ) : (
+                  <div
+                    ref={messagesContainerRef}
+                    className="flex flex-col gap-3 px-4 py-4"
+                  >
+                    {messages.map((m, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          "flex",
+                          m.role === "user" ? "justify-end" : "justify-start",
+                        )}
+                      >
+                        <div className="max-w-[85%]">
+                          <div
+                            className={cn(
+                              "rounded-lg px-3 py-2 text-sm",
+                              m.role === "user"
+                                ? "bg-emerald-600 text-white"
+                                : "border border-emerald-100 bg-[#f0fdf8] text-[#111]",
+                            )}
+                          >
+                            {m.content}
+                          </div>
+                          {m.role === "assistant" &&
+                          m.citations &&
+                          m.citations.length > 0 ? (
+                            <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                              {m.citations.map((c: any, ci: number) => (
+                                <div key={ci}>
+                                  {typeof c?.snippet === "string"
+                                    ? c.snippet
+                                    : String(c)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </ScrollArea>
-              <div className="sticky bottom-0 shrink-0 border-t border-border bg-card p-3">
+              <div className="shrink-0 border-t border-[#eaeaea] bg-white p-3">
                 <div className="flex flex-col gap-2">
                   <Textarea
                     value={chatInput}
@@ -516,15 +743,17 @@ export default function ChapterPage({
                       }
                     }}
                     disabled={chatLoading}
-                    className="min-h-20 resize-none"
+                    placeholder="Ask a question about this chapter..."
+                    className="min-h-20 w-full resize-none rounded-xl border border-[#eaeaea] p-3 text-sm focus:border-emerald-300 focus:outline-none"
                   />
-                  <Button
+                  <button
                     type="button"
                     onClick={() => void sendMessage()}
                     disabled={chatLoading}
+                    className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                   >
                     {chatLoading ? "Thinking..." : "Send"}
-                  </Button>
+                  </button>
                 </div>
               </div>
             </div>
@@ -534,47 +763,49 @@ export default function ChapterPage({
             className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden border-0 p-0 outline-none data-[state=inactive]:hidden"
           >
             <ScrollArea className="min-h-0 flex-1">
-              <div className="flex flex-col gap-4 p-4">
+              <div className="flex flex-col px-4 py-4">
                 {subtopicsLoading ? (
                   <p className="text-sm text-muted-foreground">
                     Loading subtopics...
                   </p>
                 ) : (
                   <>
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-semibold">Select Subtopics</h3>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
+                    <p className="mb-4 text-sm font-semibold text-[#111]">
+                      📝 Generate Notes
+                    </p>
+                    <div>
+                      <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-[#888]">
+                        Select Subtopics
+                      </h3>
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        <button
                           type="button"
-                          variant="outline"
-                          size="sm"
                           onClick={() =>
                             setSelectedSubtopics(subtopics.map((s) => s.title))
                           }
+                          className="rounded-md border border-[#ddd] bg-[#fafafa] px-3 py-1 text-xs hover:bg-[#f0f0f0]"
                         >
                           Select All
-                        </Button>
-                        <Button
+                        </button>
+                        <button
                           type="button"
-                          variant="outline"
-                          size="sm"
                           onClick={() => setSelectedSubtopics([])}
+                          className="rounded-md border border-[#ddd] bg-[#fafafa] px-3 py-1 text-xs hover:bg-[#f0f0f0]"
                         >
                           Clear
-                        </Button>
+                        </button>
                       </div>
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col">
                         {subtopics.map((st) => (
                           <div
                             key={st.id}
-                            className="flex items-start gap-2 text-sm"
+                            className="flex items-center gap-2 py-1.5 text-sm text-[#333]"
                           >
                             <input
                               type="checkbox"
                               id={`subtopic-${st.id}`}
                               checked={selectedSubtopics.includes(st.title)}
                               onChange={() => toggleSubtopic(st.title)}
-                              className="mt-1"
                             />
                             <label
                               htmlFor={`subtopic-${st.id}`}
@@ -587,8 +818,12 @@ export default function ChapterPage({
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-semibold">Length</h3>
+                    <div className="my-4 border-t border-[#eee]" />
+
+                    <div>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#888]">
+                        Length
+                      </h3>
                       <div className="flex flex-wrap gap-2">
                         {(
                           [
@@ -602,10 +837,10 @@ export default function ChapterPage({
                             type="button"
                             onClick={() => setNoteLength(value)}
                             className={cn(
-                              "rounded-md border border-border px-3 py-1.5 text-sm transition-colors",
+                              "rounded-lg border border-[#ddd] px-3 py-1.5 text-sm",
                               noteLength === value
-                                ? "bg-primary text-primary-foreground"
-                                : "hover:bg-muted",
+                                ? "border-emerald-600 bg-emerald-600 text-white"
+                                : "bg-white hover:bg-[#fafafa]",
                             )}
                           >
                             {label}
@@ -614,8 +849,12 @@ export default function ChapterPage({
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-semibold">Language</h3>
+                    <div className="my-4 border-t border-[#eee]" />
+
+                    <div>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#888]">
+                        Language
+                      </h3>
                       <div className="flex flex-wrap gap-2">
                         {(
                           [
@@ -629,10 +868,10 @@ export default function ChapterPage({
                             type="button"
                             onClick={() => setNoteLanguage(value)}
                             className={cn(
-                              "rounded-md border border-border px-3 py-1.5 text-sm transition-colors",
+                              "rounded-lg border border-[#ddd] px-3 py-1.5 text-sm",
                               noteLanguage === value
-                                ? "bg-primary text-primary-foreground"
-                                : "hover:bg-muted",
+                                ? "border-emerald-600 bg-emerald-600 text-white"
+                                : "bg-white hover:bg-[#fafafa]",
                             )}
                           >
                             {label}
@@ -641,18 +880,23 @@ export default function ChapterPage({
                       </div>
                     </div>
 
-                    <Button
+                    <button
                       type="button"
-                      className="w-full"
                       disabled={notesLoading}
                       onClick={() => void generateNotes()}
+                      className="mt-4 w-full rounded-xl bg-[#111] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#333] disabled:opacity-50"
                     >
                       Generate
-                    </Button>
+                    </button>
 
                     {generatedNote ? (
-                      <div className="prose prose-sm max-w-none mt-4 border-t pt-4">
-                        <ReactMarkdown>{generatedNote}</ReactMarkdown>
+                      <div className="prose prose-sm mt-4 max-w-none border-t pt-4">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkMath]}
+                          rehypePlugins={[rehypeKatex]}
+                        >
+                          {generatedNote}
+                        </ReactMarkdown>
                       </div>
                     ) : null}
                   </>
@@ -666,49 +910,55 @@ export default function ChapterPage({
           >
             {testPhase === "config" ? (
               <ScrollArea className="min-h-0 flex-1">
-                <div className="flex flex-col gap-4 p-4">
+                <div className="mx-auto max-w-sm px-4 py-4">
                   {subtopicsLoading ? (
                     <p className="text-sm text-muted-foreground">
                       Loading subtopics...
                     </p>
                   ) : (
                     <>
-                      <div className="space-y-2">
-                        <h3 className="text-sm font-semibold">
+                      <div className="mb-5">
+                        <p className="text-sm font-semibold text-[#111]">
+                          🧪 Generate Test
+                        </p>
+                        <p className="mt-0.5 text-xs text-[#999]">
+                          Select topics and configure your test
+                        </p>
+                      </div>
+                      <div>
+                        <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#888]">
                           Select Subtopics
                         </h3>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
+                        <div className="mb-3">
+                          <button
                             type="button"
-                            variant="outline"
-                            size="sm"
                             onClick={() =>
                               setTestSubtopics(subtopics.map((s) => s.title))
                             }
+                            className="mr-2 rounded-md border border-[#ddd] bg-[#fafafa] px-2.5 py-1 text-xs hover:bg-[#eee]"
                           >
                             Select All
-                          </Button>
-                          <Button
+                          </button>
+                          <button
                             type="button"
-                            variant="outline"
-                            size="sm"
                             onClick={() => setTestSubtopics([])}
+                            className="mr-2 rounded-md border border-[#ddd] bg-[#fafafa] px-2.5 py-1 text-xs hover:bg-[#eee]"
                           >
                             Clear
-                          </Button>
+                          </button>
                         </div>
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col">
                           {subtopics.map((st) => (
                             <div
                               key={st.id}
-                              className="flex items-start gap-2 text-sm"
+                              className="flex cursor-pointer items-center gap-2 py-1 text-xs text-[#444]"
                             >
                               <input
                                 type="checkbox"
                                 id={`test-subtopic-${st.id}`}
                                 checked={testSubtopics.includes(st.title)}
                                 onChange={() => toggleTestSubtopic(st.title)}
-                                className="mt-1"
+                                className="h-3.5 w-3.5 accent-emerald-500"
                               />
                               <label
                                 htmlFor={`test-subtopic-${st.id}`}
@@ -721,21 +971,23 @@ export default function ChapterPage({
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <h3 className="text-sm font-semibold">
+                      <div className="my-4 border-t border-[#eee]" />
+
+                      <div>
+                        <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#888]">
                           Number of questions
                         </h3>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex gap-2">
                           {([3, 5, 10] as const).map((n) => (
                             <button
                               key={n}
                               type="button"
                               onClick={() => setNumQuestions(n)}
                               className={cn(
-                                "rounded-md border border-border px-3 py-1.5 text-sm transition-colors",
+                                "rounded-lg border border-[#ddd] px-4 py-1.5 text-xs text-[#444] transition-colors hover:border-emerald-300",
                                 numQuestions === n
-                                  ? "bg-primary text-primary-foreground"
-                                  : "hover:bg-muted",
+                                  ? "border-emerald-600 bg-emerald-600 text-white"
+                                  : "",
                               )}
                             >
                               {n}
@@ -744,9 +996,13 @@ export default function ChapterPage({
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <h3 className="text-sm font-semibold">Difficulty</h3>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="my-4 border-t border-[#eee]" />
+
+                      <div>
+                        <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-[#888]">
+                          Difficulty
+                        </h3>
+                        <div className="flex gap-2">
                           {(
                             [
                               ["easy", "Easy"],
@@ -759,10 +1015,10 @@ export default function ChapterPage({
                               type="button"
                               onClick={() => setDifficulty(value)}
                               className={cn(
-                                "rounded-md border border-border px-3 py-1.5 text-sm transition-colors",
+                                "rounded-lg border border-[#ddd] px-4 py-1.5 text-xs text-[#444] transition-colors hover:border-emerald-300",
                                 difficulty === value
-                                  ? "bg-primary text-primary-foreground"
-                                  : "hover:bg-muted",
+                                  ? "border-emerald-600 bg-emerald-600 text-white"
+                                  : "",
                               )}
                             >
                               {label}
@@ -771,154 +1027,16 @@ export default function ChapterPage({
                         </div>
                       </div>
 
-                      <Button
+                      <button
                         type="button"
-                        className="w-full"
                         disabled={testLoading}
                         onClick={() => void generateTest()}
+                        className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#111] px-5 py-2.5 text-xs font-medium text-white transition-colors hover:bg-[#333] disabled:opacity-50"
                       >
                         Generate Test
-                      </Button>
+                      </button>
                     </>
                   )}
-                </div>
-              </ScrollArea>
-            ) : null}
-
-            {testPhase === "taking" && currentTest?.questions?.length ? (
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className="shrink-0 border-b border-border px-4 py-2 text-sm text-muted-foreground">
-                  Question {currentQuestionIndex + 1} of{" "}
-                  {currentTest.questions.length}
-                </div>
-                <ScrollArea className="min-h-0 flex-1">
-                  {(() => {
-                    const q = currentTest.questions[currentQuestionIndex] as {
-                      id: string;
-                      question_text: string;
-                      options: string[];
-                    };
-                    const letters = ["A", "B", "C", "D"] as const;
-                    return (
-                      <div className="space-y-4 p-4">
-                        <p className="text-sm font-medium leading-snug">
-                          {q.question_text}
-                        </p>
-                        <div className="flex flex-col gap-2">
-                          {letters.map((letter, i) => (
-                            <button
-                              key={letter}
-                              type="button"
-                              onClick={() =>
-                                setUserAnswers((prev) => ({
-                                  ...prev,
-                                  [q.id]: letter,
-                                }))
-                              }
-                              className={cn(
-                                "rounded-md border border-border px-3 py-2 text-left text-sm transition-colors",
-                                userAnswers[q.id] === letter
-                                  ? "bg-primary text-primary-foreground"
-                                  : "hover:bg-muted",
-                              )}
-                            >
-                              {q.options[i] ?? `${letter}.`}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </ScrollArea>
-                <div className="flex shrink-0 flex-wrap gap-2 border-t border-border p-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={currentQuestionIndex === 0}
-                    onClick={() =>
-                      setCurrentQuestionIndex((i) => Math.max(0, i - 1))
-                    }
-                  >
-                    Previous
-                  </Button>
-                  {currentQuestionIndex >= currentTest.questions.length - 1 ? (
-                    <Button
-                      type="button"
-                      className="flex-1"
-                      disabled={testLoading}
-                      onClick={() => void submitTest()}
-                    >
-                      Submit Test
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      className="flex-1"
-                      onClick={() =>
-                        setCurrentQuestionIndex((i) =>
-                          Math.min(currentTest.questions.length - 1, i + 1),
-                        )
-                      }
-                    >
-                      Next
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ) : null}
-
-            {testPhase === "results" && attemptResult ? (
-              <ScrollArea className="min-h-0 flex-1">
-                <div className="flex flex-col gap-4 p-4">
-                  <div className="rounded-lg border border-border bg-muted/30 p-4 text-center">
-                    <p className="text-4xl font-bold tabular-nums">
-                      {attemptResult.score}%
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {attemptResult.correct} / {attemptResult.total} correct
-                    </p>
-                  </div>
-
-                  <ul className="flex flex-col gap-4">
-                    {(attemptResult.results as any[]).map((r) => (
-                      <li
-                        key={r.questionId}
-                        className="rounded-lg border border-border p-3 text-sm"
-                      >
-                        <div className="mb-2 flex items-start gap-2">
-                          <span
-                            className={cn(
-                              "shrink-0 font-semibold",
-                              r.isCorrect
-                                ? "text-green-600 dark:text-green-400"
-                                : "text-red-600 dark:text-red-400",
-                            )}
-                          >
-                            {r.isCorrect ? "\u2713" : "\u2717"}
-                          </span>
-                          <p className="font-medium leading-snug">
-                            {r.question_text}
-                          </p>
-                        </div>
-                        <p className="text-muted-foreground">
-                          Your answer: {r.selectedAnswer || "—"} · Correct:{" "}
-                          {r.correctAnswer}
-                        </p>
-                        <p className="mt-2 text-muted-foreground">
-                          {r.explanation}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <Button
-                    type="button"
-                    className="w-full"
-                    variant="outline"
-                    onClick={takeAnotherTest}
-                  >
-                    Take Another Test
-                  </Button>
                 </div>
               </ScrollArea>
             ) : null}

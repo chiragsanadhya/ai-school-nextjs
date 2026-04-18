@@ -2,15 +2,32 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type ClassItem = {
   id: string;
   name: string;
 };
 
+function DashboardSkeletonGrid() {
+  return (
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+      {Array.from({ length: 8 }, (_, i) => (
+        <div
+          key={i}
+          className="animate-pulse rounded-2xl border border-[#eaeaea] bg-white p-5"
+        >
+          <div className="mb-3 h-4 w-3/4 rounded bg-[#eaeaea]" />
+          <div className="h-3 w-1/2 rounded bg-[#f3f3f3]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [loading, setLoading] = useState(true);
   const [classes, setClasses] = useState<ClassItem[]>([]);
 
@@ -31,7 +48,13 @@ export default function DashboardPage() {
       const res = await fetch("/api/classes", { credentials: "include" });
       const json = await res.json();
       if (cancelled) return;
-      setClasses(Array.isArray(json.data) ? json.data : []);
+      const data = Array.isArray(json.data) ? json.data : [];
+      const sorted = data.sort((a: any, b: any) => {
+        const numA = parseInt(a.name.replace("Class ", ""));
+        const numB = parseInt(b.name.replace("Class ", ""));
+        return numA - numB;
+      });
+      setClasses(sorted);
       setLoading(false);
     }
 
@@ -41,41 +64,43 @@ export default function DashboardPage() {
     };
   }, [router]);
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
-        Loading…
-      </div>
-    );
-  }
+  if (!mounted) return null;
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
-      <h1 className="mb-6 font-heading text-2xl font-semibold">Classes</h1>
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-        {classes.map((c) => (
-          <Card
-            key={c.id}
-            className="cursor-pointer transition-shadow hover:ring-2 hover:ring-ring/30"
-            role="button"
-            tabIndex={0}
-            onClick={() => router.push(`/dashboard/${c.id}`)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                router.push(`/dashboard/${c.id}`);
-              }
-            }}
-          >
-            <CardHeader>
-              <CardTitle>{c.name}</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              View subjects
-            </CardContent>
-          </Card>
-        ))}
+    <main className="mx-auto w-full max-w-4xl px-6 py-10">
+      <div className="mb-8 border-l-4 border-emerald-400 pl-4">
+        <h1 className="text-3xl font-semibold tracking-tight text-[#111]">
+          Classes
+        </h1>
+        <p className="mt-1 text-sm uppercase tracking-widest text-[#888]">
+          Select your class
+        </p>
       </div>
-    </div>
+      {loading ? (
+        <DashboardSkeletonGrid />
+      ) : (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          {classes.map((c) => (
+            <div
+              key={c.id}
+              className="cursor-pointer rounded-2xl border border-[#eaeaea] bg-white p-5 transition-all duration-200 hover:-translate-y-1 hover:border-emerald-200 hover:shadow-md"
+              role="button"
+              tabIndex={0}
+              onClick={() => router.push(`/dashboard/${c.id}`)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  router.push(`/dashboard/${c.id}`);
+                }
+              }}
+            >
+              <div className="mb-2 text-2xl">🎓</div>
+              <div className="text-base font-semibold text-[#111]">{c.name}</div>
+              <div className="mt-1 text-sm text-[#888]">View subjects</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </main>
   );
 }

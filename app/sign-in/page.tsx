@@ -26,20 +26,26 @@ export default function SignInPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-full max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-        Sign in
-      </h1>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        No account?{" "}
-        <Link
-          href="/sign-up"
-          className="font-medium text-zinc-900 underline dark:text-zinc-50"
-        >
-          Sign up
-        </Link>
-      </p>
-      <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
+    <div className="flex min-h-screen items-center justify-center bg-[#f0fdf8]">
+      <main className="w-full max-w-sm rounded-2xl border border-[#eaeaea] bg-white p-8 shadow-sm">
+        <div className="mb-6 text-center">
+          <span className="text-2xl text-emerald-500">●</span>
+          <p className="mt-1 text-lg font-semibold text-[#111]">AI Gurukul</p>
+          <p className="mt-1 text-sm text-[#888]">Sign in to continue</p>
+        </div>
+        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+          Sign in
+        </h1>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          No account?{" "}
+          <Link
+            href="/sign-up"
+            className="font-medium text-zinc-900 underline dark:text-zinc-50"
+          >
+            Sign up
+          </Link>
+        </p>
+        <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
         {error ? (
           <p className="text-sm text-red-600 dark:text-red-400" role="alert">
             {error}
@@ -72,7 +78,8 @@ export default function SignInPage() {
         >
           Sign in
         </button>
-      </form>
-    </main>
+        </form>
+      </main>
+    </div>
   );
 }
