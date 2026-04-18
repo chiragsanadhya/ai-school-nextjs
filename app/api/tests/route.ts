@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { generateText } from "@/lib/gemini";
@@ -156,7 +157,7 @@ export async function POST(request: NextRequest) {
 
     const questionsInput = parsed.map(normalizeQuestion);
 
-    const data = await prisma.$transaction(async (tx: typeof prisma) => {
+    const data = await prisma.$transaction(async (tx) => {
       const test = await tx.test.create({
         data: {
           user_id: userId,
