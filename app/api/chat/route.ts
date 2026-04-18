@@ -91,17 +91,17 @@ export async function POST(request: NextRequest) {
     const embedding = await generateEmbedding(message);
     const embeddingStr = `[${embedding.join(",")}]`;
 
-    const chunks = await prisma.$queryRaw<ChunkRow[]>`
+    const chunks = (await prisma.$queryRaw`
       SELECT id, content, chunk_index,
         1 - (embedding <=> ${embeddingStr}::vector) AS similarity
       FROM "ChapterChunk"
       WHERE chapter_id = ${chapterId}
       ORDER BY embedding <=> ${embeddingStr}::vector
       LIMIT 5
-    `;
+    `) as ChunkRow[];
 
     const context = chunks
-      .map((c, i) => "Chunk " + (i + 1) + ": " + c.content)
+      .map((c: ChunkRow, i: number) => "Chunk " + (i + 1) + ": " + c.content)
       .join("\n\n");
 
     const prompt = `You are a helpful study assistant. Answer the student's question based only on the context provided below.
@@ -116,7 +116,7 @@ Provide a clear and helpful answer.`;
 
     const answer = await generateText(prompt);
 
-    const citations = chunks.map((c) => ({
+    const citations = chunks.map((c: ChunkRow) => ({
       chunkId: c.id,
       chunkIndex: c.chunk_index,
       snippet: c.content.slice(0, 100),
